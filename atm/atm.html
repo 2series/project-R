@@ -1,0 +1,376 @@
+---
+title: 'Bank ATM Cash Machine Forecast with Time Series'
+author: Rihad Variawa
+date: '2019-02-07'
+slug: bank
+categories:
+  - R
+  - Machine Learning
+tags: []
+header:
+  image: "headers/atm.jpg"
+summary: 'Forcast monthly residential energy usage'
+---
+
+
+
+<div id="preamble" class="section level2">
+<h2>Preamble:</h2>
+<p>This document focuses on the time series analysis. The variable ‘Cash’ is provided in hundreds of dollars.</p>
+<p>This is a time series spanning daily transactions from May 1, 2009 to April 30, 2010 from four ATMs.</p>
+</div>
+<div id="research-question" class="section level2">
+<h2>Research question:</h2>
+<ol style="list-style-type: decimal">
+<li>forecast how much cash is taken out of 4 different ATM machines for May 2010</li>
+</ol>
+</div>
+<div id="structure-of-analysis" class="section level2">
+<h2>Structure of analysis:</h2>
+<ol style="list-style-type: decimal">
+<li>Exploratory Data Analysis</li>
+<li>Visualizations</li>
+<li>ACF and PACF</li>
+<li>Clean The Data</li>
+<li>Trend Preview</li>
+<li>Data Decomposition Plot</li>
+<li>Stationarity Test</li>
+<li>Model Data</li>
+<li>Transformation</li>
+<li>ARIMA Model</li>
+<li>Evaluation</li>
+<li>Box-Ljung Test</li>
+<li>Forecasting</li>
+<li>Model Accuracy</li>
+</ol>
+<pre class="r"><code>sourceURL &lt;- &quot;https://raw.githubusercontent.com/jzuniga123&quot;
+file &lt;- &quot;/SPS/master/DATA%20624/ATM624Data.xlsx&quot;
+download.file(paste0(sourceURL, file), &quot;temp.xlsx&quot;, mode=&quot;wb&quot;)
+atm &lt;- xlsx::read.xlsx(&quot;temp.xlsx&quot;, sheetIndex=1, header=T)
+invisible(file.remove(&quot;temp.xlsx&quot;))</code></pre>
+</div>
+<div id="exploratory-data-analysis" class="section level2">
+<h2>Exploratory Data Analysis</h2>
+<pre class="r"><code># preview first 5 rows
+head(atm)</code></pre>
+<pre><code>        DATE  ATM Cash
+1 2009-05-01 ATM1   96
+2 2009-05-01 ATM2  107
+3 2009-05-02 ATM1   82
+4 2009-05-02 ATM2   89
+5 2009-05-03 ATM1   85
+6 2009-05-03 ATM2   90</code></pre>
+<pre class="r"><code>class(atm)</code></pre>
+<pre><code>[1] &quot;data.frame&quot;</code></pre>
+<pre class="r"><code>str(atm)</code></pre>
+<pre><code>&#39;data.frame&#39;:   1474 obs. of  3 variables:
+ $ DATE: Date, format: &quot;2009-05-01&quot; &quot;2009-05-01&quot; ...
+ $ ATM : Factor w/ 4 levels &quot;ATM1&quot;,&quot;ATM2&quot;,..: 1 2 1 2 1 2 1 2 1 2 ...
+ $ Cash: num  96 107 82 89 85 90 90 55 99 79 ...</code></pre>
+<pre class="r"><code># preview descriptive statistics on quantitative and qualitative variables
+summary(atm)</code></pre>
+<pre><code>      DATE              ATM           Cash        
+ Min.   :2009-05-01   ATM1:365   Min.   :    0.0  
+ 1st Qu.:2009-08-01   ATM2:365   1st Qu.:    0.5  
+ Median :2009-11-01   ATM3:365   Median :   73.0  
+ Mean   :2009-10-31   ATM4:365   Mean   :  155.6  
+ 3rd Qu.:2010-02-01   NA&#39;s: 14   3rd Qu.:  114.0  
+ Max.   :2010-05-14              Max.   :10919.8  
+                                 NA&#39;s   :19       </code></pre>
+<p>Skewed distribution since the mean is higher than the third quartile.</p>
+<pre class="r"><code># preview periods between dates in the time series
+xts::periodicity(unique(atm$DATE))</code></pre>
+<pre><code>Daily periodicity from 2009-05-01 to 2010-05-14 </code></pre>
+<p>Dataframe spans daily transactions from May 1, 2009 to May 14, 2010.</p>
+<pre class="r"><code># preview observations that have no missing values
+atm[!complete.cases(atm), ]</code></pre>
+<pre><code>          DATE  ATM Cash
+87  2009-06-13 ATM1   NA
+93  2009-06-16 ATM1   NA
+98  2009-06-18 ATM2   NA
+105 2009-06-22 ATM1   NA
+110 2009-06-24 ATM2   NA
+731 2010-05-01 &lt;NA&gt;   NA
+732 2010-05-02 &lt;NA&gt;   NA
+733 2010-05-03 &lt;NA&gt;   NA
+734 2010-05-04 &lt;NA&gt;   NA
+735 2010-05-05 &lt;NA&gt;   NA
+736 2010-05-06 &lt;NA&gt;   NA
+737 2010-05-07 &lt;NA&gt;   NA
+738 2010-05-08 &lt;NA&gt;   NA
+739 2010-05-09 &lt;NA&gt;   NA
+740 2010-05-10 &lt;NA&gt;   NA
+741 2010-05-11 &lt;NA&gt;   NA
+742 2010-05-12 &lt;NA&gt;   NA
+743 2010-05-13 &lt;NA&gt;   NA
+744 2010-05-14 &lt;NA&gt;   NA</code></pre>
+<p>ATM transactions have missing values.</p>
+<pre class="r"><code>summary(factor(atm$ATM)[!is.na(atm$Cash) &amp; atm$Cash %% 1 != 0])</code></pre>
+<pre><code>ATM1 ATM2 ATM3 ATM4 
+   0    0    0  365 </code></pre>
+<p>There are non-integer transactions at ATM 4 implying that these data are likely debit card purchase transactions.</p>
+</div>
+<div id="visualizations" class="section level2">
+<h2>Visualizations</h2>
+<pre class="r"><code># time plot represents a line graph that plots each observed value against the time of the observation, with a single line connecting each observation across the entire period
+par(mfrow=c(4, 2), mar = c(3, 5, 0, 0), oma = c(0, 0, 0.5, 0.5))
+for(i in 1:length(levels(atm$ATM))) {
+  atm_sub &lt;- subset(atm, ATM == paste0(&quot;ATM&quot;, i))
+  atm_ts &lt;- xts::xts(atm_sub$Cash, order.by=atm_sub$DATE)
+  n &lt;- nrow(atm_ts); l &lt;- rep(1, n); m &lt;- rep(20, n); h &lt;- rep(100, n)
+  print(plot(cbind(atm_ts, l, m,h), main=paste0(&quot;ATM&quot;, i)))
+  
+# histogram displays the frequency at which values in a vector occur.
+  hist(atm_ts, col=&quot;green&quot;, xlab=&quot;&quot;, main=&quot;&quot;)
+}</code></pre>
+<p><img src="/post/atm/atm_files/figure-html/unnamed-chunk-9-1.png" width="672" /></p>
+<p>Observations:</p>
+<ul>
+<li>Time Plots and Histograms for ATM1 and ATM2 are unremarkable.</li>
+<li>Time Plot and Histogram of ATM3 shows the data consists mostly of zero values with a handful of transactions occurring at the end of the series.</li>
+<li>ATM3 will not be modeled due to these degenerative properties.</li>
+<li>Time Plot and Histogram of ATM4 shows an extreme outlier around the three-quarter mark of the series. The horizontal lines in the Time Plots delineate $1, $20, and $100 in red, green, and blue; respectively.</li>
+</ul>
+</div>
+<div id="acf-and-pacf" class="section level2">
+<h2>ACF and PACF</h2>
+<p>ACF plot shows the autocorrelations between each observation and its immediate predecessor (lagged observation). The PACF plot shows the autocorrelations between the current observation and each individual lagged observation The xts::xts()function converts data to a time series object which displays better in visualizations than time series objects created using other packages.</p>
+<pre class="r"><code>par(mfrow=c(4, 2), mar = c(3, 5, 0, 0), oma = c(0, 0, 0.5, 0.5))
+for(i in 1:length(levels(atm$ATM))) {
+  atm_sub &lt;- subset(atm, ATM == paste0(&quot;ATM&quot;, i))
+  atm_ts &lt;- xts::xts(atm_sub$Cash, order.by=atm_sub$DATE)
+  acf(na.omit(atm_ts), ylab=paste0(&quot;ACF ATM&quot;, i), main=&quot;&quot;) 
+  pacf(na.omit(atm_ts), ylab=paste0(&quot;PACF ATM&quot;, i), main=&quot;&quot;)
+}</code></pre>
+<p><img src="/post/atm/atm_files/figure-html/unnamed-chunk-10-1.png" width="672" /></p>
+<p>Observations:</p>
+<ul>
+<li>ACF and PACF plots for ATM1, ATM2, and ATM3 show autocorrelation between each observation and its immediate predecessor and autocorrelation between the current observation and other individual lagged observations. The ACF and PACF plots for ATM3 however, are not reliable due to the death of observations.</li>
+</ul>
+</div>
+<div id="clean-the-data" class="section level2">
+<h2>Clean The Data</h2>
+<p>Data are cleaned using forecast::tsclean() and then converted to a time series object using the ts() function. The tsclean() function imputes nulls and removes outliers. The ts()function converts data to a time series object which is compatible with the forecast package.</p>
+<pre class="r"><code>for(i in 1:length(levels(atm$ATM))) {
+  atm_num &lt;- paste0(&quot;ATM&quot;, i)
+  atm_sub &lt;- subset(atm, ATM == atm_num, select=-2)
+  atm_sub$Cash &lt;- forecast::tsclean(atm_sub$Cash, replace.missing=T)
+  assign(atm_num, ts(atm_sub$Cash, frequency = 7, start=start(atm_sub$DATE)))
+}</code></pre>
+</div>
+<div id="trend-examine" class="section level2">
+<h2>Trend Examine</h2>
+<p>A moving average smoother is helpful in examining what kind of trend is involved in a series. Moving average models should not be confused with moving average smoothing. A moving average model is used for forecasting future values while moving average smoothing is used for estimating the trend-cycle component of past values. The ma() function computes a simple moving average smoother of a given time series.</p>
+<pre class="r"><code>par(mfrow=c(3, 1), mar = c(0, 4, 0, 0), oma = c(0, 0, 0.5, 0.5))
+plot(ATM1, col=8, xaxt = &quot;n&quot;, ylab=&quot;ATM1&quot;)
+lines(forecast::ma(ATM1, order=7), col=2)  # weekly
+lines(forecast::ma(ATM1, order=30), col=4) # monthly
+plot(ATM2, col=8, xaxt = &quot;n&quot;, ylab=&quot;ATM3&quot;)
+lines(forecast::ma(ATM2, order=7), col=2)  # weekly
+lines(forecast::ma(ATM2, order=30), col=4) # monthly
+plot(ATM4, col=8, xaxt = &quot;n&quot;, ylab=&quot;ATM4&quot;)
+lines(forecast::ma(ATM4, order=7), col=2)  # weekly
+lines(forecast::ma(ATM4, order=30), col=4) # monthly</code></pre>
+<p><img src="/post/atm/atm_files/figure-html/unnamed-chunk-12-1.png" width="672" /></p>
+<p>Observations:</p>
+<ul>
+<li>The 7-day (weekly) and 30-day (monthly) moving average smoother line shows that the data for the ATMs have no apparent trend.</li>
+</ul>
+</div>
+<div id="data-decomposition-plot" class="section level2">
+<h2>Data Decomposition Plot</h2>
+<p>Decomposition Plot decomposes and plots the observed values, the underlying trend, seasonality, and randomness of the time series data.</p>
+<pre class="r"><code>plot(decompose(ATM1), col=3)</code></pre>
+<p><img src="/post/atm/atm_files/figure-html/unnamed-chunk-13-1.png" width="672" /></p>
+<pre class="r"><code>plot(decompose(ATM2), col=3)</code></pre>
+<p><img src="/post/atm/atm_files/figure-html/unnamed-chunk-14-1.png" width="672" /></p>
+<pre class="r"><code>plot(decompose(ATM4), col=3)</code></pre>
+<p><img src="/post/atm/atm_files/figure-html/unnamed-chunk-15-1.png" width="672" /></p>
+<p>Observations:</p>
+<ul>
+<li>Plotting the trend-cycle and seasonal indices computed by additive decomposition shows that the data have no apparent trend, seasonal fluctuations, and fairly random residuals.</li>
+</ul>
+</div>
+<div id="stationarity-test" class="section level2">
+<h2>Stationarity Test</h2>
+<div id="dickey-fuller-test" class="section level3">
+<h3>Dickey-Fuller Test</h3>
+<p>An augmented Dickey-Fuller unit root test evaluates if the data exhibit a Stationarity process with deterministic trend or a Stationarity process with stochastic trend.</p>
+<pre class="r"><code>tseries::adf.test(ATM1)</code></pre>
+<pre><code>Warning in tseries::adf.test(ATM1): p-value smaller than printed p-value</code></pre>
+<pre><code>
+    Augmented Dickey-Fuller Test
+
+data:  ATM1
+Dickey-Fuller = -4.5329, Lag order = 7, p-value = 0.01
+alternative hypothesis: stationary</code></pre>
+<pre class="r"><code>tseries::adf.test(ATM2)</code></pre>
+<pre><code>Warning in tseries::adf.test(ATM2): p-value smaller than printed p-value</code></pre>
+<pre><code>
+    Augmented Dickey-Fuller Test
+
+data:  ATM2
+Dickey-Fuller = -6.046, Lag order = 7, p-value = 0.01
+alternative hypothesis: stationary</code></pre>
+<pre class="r"><code>tseries::adf.test(ATM4)</code></pre>
+<pre><code>Warning in tseries::adf.test(ATM4): p-value smaller than printed p-value</code></pre>
+<pre><code>
+    Augmented Dickey-Fuller Test
+
+data:  ATM4
+Dickey-Fuller = -5.6304, Lag order = 7, p-value = 0.01
+alternative hypothesis: stationary</code></pre>
+<p>The augmented Dickey-Fuller unit root test p-values are below α=0.05. Therefore, the null hypothesis that the data has unit roots is rejected. The data exhibit stochastic trend which suggests using regression (AR) in lieu of differencing. Autoregressive (AR) modeling acts like partial differencing when ϕ&lt;1. When ϕ=1 the AR(1) model is like a first-order difference.</p>
+</div>
+</div>
+<div id="model-data" class="section level2">
+<h2>Model Data</h2>
+<p>The <strong>train</strong> and <strong>test</strong> sets are created by referencing rows by index.</p>
+<pre class="r"><code># train/test split
+index_train &lt;- 1:(length(ATM1) - 30)
+ATM1_train &lt;- ts(ATM1[index_train], frequency=7)
+ATM1_test &lt;- ts(ATM1[-index_train], frequency=7)
+index_train &lt;- 1:(length(ATM2) - 30)
+ATM2_train &lt;- ts(ATM2[index_train], frequency=7)
+ATM2_test &lt;- ts(ATM2[-index_train], frequency=7)
+index_train &lt;- 1:(length(ATM3) - 30)
+ATM3_train &lt;- ts(ATM3[index_train], frequency=7)
+ATM3_test &lt;- ts(ATM3[-index_train], frequency=7)
+index_train &lt;- 1:(length(ATM4) - 30)
+ATM4_train &lt;- ts(ATM4[index_train], frequency=7)
+ATM4_test &lt;- ts(ATM4[-index_train], frequency=7)</code></pre>
+<p>The indexed rows for the test set are a window at the end of the times series. The window sized for the testing set is that of the desired prediction. The training set window is comprised of the indexes which are the complement of the test set indexes.</p>
+</div>
+<div id="transformation" class="section level2">
+<h2>Transformation</h2>
+<p>The Augmented Dickey-Fuller Test results support not differencing. Data can be seasonally adjusted for modeling and then reseasonalized for predictions. The modeling algorithm being used evaluates seasonal components and produces predictions that reflect the seasonality in the underlying data. Therefore, the data need not be seasonally adjusted.Heteroskedasticity refers to the circumstance in which the variability of a variable is unequal across the range of values of a second variable. Box-Cox transformations can help to stabilize the variance of a time series.</p>
+<pre class="r"><code>(lambda1 &lt;- forecast::BoxCox.lambda(ATM1_train))</code></pre>
+<pre><code>[1] 0.4355901</code></pre>
+<pre class="r"><code>(lambda2 &lt;- forecast::BoxCox.lambda(ATM2_train))</code></pre>
+<pre><code>[1] 0.7156895</code></pre>
+<pre class="r"><code>(lambda4 &lt;- forecast::BoxCox.lambda(ATM4_train))</code></pre>
+<pre><code>[1] 0.3945256</code></pre>
+<p>The Box-Cox transformation parameters suggested are around λ=0.5. This rounded (more interpretable) value is suggestive of a 1/yt‾‾√ transformation. These Box-Cox transformations stabilize the variance and make each series relatively homoskedastic with equal variance.</p>
+</div>
+<div id="arima-model" class="section level2">
+<h2>ARIMA Model</h2>
+<p>The auto.arima() function chooses an ARIMA model automatically. It uses a variation of the Hyndman and Khandakar algorithm which combines unit root tests, minimization of the AICc, and MLE to obtain an ARIMA model. The function takes some short-cuts in order to speed up the computation and will not always yield the best model. Setting stepwise and approximation to FALSE prevents the function from taking short-cuts.</p>
+<pre class="r"><code>(fit1 &lt;- forecast::auto.arima(ATM1_train, stepwise=F, approximation=F, d=0, lambda=lambda1))</code></pre>
+<pre><code>Series: ATM1_train 
+ARIMA(0,0,2)(1,1,1)[7] 
+Box Cox transformation: lambda= 0.4355901 
+
+Coefficients:
+         ma1      ma2    sar1     sma1
+      0.1449  -0.1116  0.1320  -0.7243
+s.e.  0.0547   0.0537  0.0893   0.0669
+
+sigma^2 estimated as 6.441:  log likelihood=-770.86
+AIC=1551.73   AICc=1551.92   BIC=1570.69</code></pre>
+<pre class="r"><code>(fit2 &lt;- forecast::auto.arima(ATM2_train, stepwise=F, approximation=F, d=0, lambda=lambda2))</code></pre>
+<pre><code>Series: ATM2_train 
+ARIMA(2,0,2)(0,1,1)[7] with drift 
+Box Cox transformation: lambda= 0.7156895 
+
+Coefficients:
+          ar1      ar2     ma1     ma2     sma1    drift
+      -0.4282  -0.9254  0.4761  0.8044  -0.7672  -0.0246
+s.e.   0.0464   0.0413  0.0764  0.0555   0.0483   0.0155
+
+sigma^2 estimated as 66.34:  log likelihood=-1152.83
+AIC=2319.66   AICc=2320.01   BIC=2346.21</code></pre>
+<pre class="r"><code>(fit4 &lt;- forecast::auto.arima(ATM4_train, stepwise=F, approximation=F, d=0, lambda=lambda4))</code></pre>
+<pre><code>Series: ATM4_train 
+ARIMA(1,0,0)(2,0,0)[7] with non-zero mean 
+Box Cox transformation: lambda= 0.3945256 
+
+Coefficients:
+         ar1    sar1    sar2     mean
+      0.0814  0.2060  0.1911  22.7977
+s.e.  0.0548  0.0537  0.0547   0.9477
+
+sigma^2 estimated as 97.25:  log likelihood=-1240.53
+AIC=2491.06   AICc=2491.24   BIC=2510.13</code></pre>
+</div>
+<div id="evaluate" class="section level2">
+<h2>Evaluate</h2>
+<p>ACF and PACF</p>
+<p>ACF plot shows the autocorrelations between each observation and its immediate predecessor (lagged observation). The PACF plot shows the autocorrelations between the current observation and each individual lagged observation.</p>
+<pre class="r"><code>par(mfrow=c(3, 2), mar = c(3, 5, 0, 0), oma = c(0, 0, 0.5, 0.5))
+acf(residuals(fit1), ylab=&quot;ACF ATM1&quot;); pacf(residuals(fit1), ylab=&quot;PACF ATM1&quot;)
+acf(residuals(fit2), ylab=&quot;ACF ATM2&quot;); pacf(residuals(fit2), ylab=&quot;PACF ATM2&quot;)
+acf(residuals(fit4), ylab=&quot;ACF ATM4&quot;); pacf(residuals(fit4), ylab=&quot;PACF ATM4&quot;)</code></pre>
+<p><img src="/post/atm/atm_files/figure-html/unnamed-chunk-22-1.png" width="672" /></p>
+<p>Observations:</p>
+<ul>
+<li>The residuals of the models appear to display the characteristics of White Noise in the ACF and PACF plots with only one of the twenty residuals (or 0.05%) being significant. At a 95% confidence interval this is within probabilistic expectations.</li>
+</ul>
+</div>
+<div id="box-ljung-test" class="section level2">
+<h2>Box-Ljung Test</h2>
+<p>The Box-Ljung test is helpful in assessing if data follow a White Noise pattern. The arma attribute of the fitted model returns a vector containing the ARIMA model parameters p,q,P,Q,period,d,and D; in that order.</p>
+<pre class="r"><code>Box.test(residuals(fit1), lag=7, fitdf=sum(fit1$arma[1:2]), type=&quot;Ljung-Box&quot;)</code></pre>
+<pre><code>
+    Box-Ljung test
+
+data:  residuals(fit1)
+X-squared = 5.7195, df = 5, p-value = 0.3345</code></pre>
+<pre class="r"><code>Box.test(residuals(fit2), lag=7, fitdf=sum(fit1$arma[1:2]), type=&quot;Ljung-Box&quot;)</code></pre>
+<pre><code>
+    Box-Ljung test
+
+data:  residuals(fit2)
+X-squared = 7.9286, df = 5, p-value = 0.1602</code></pre>
+<pre class="r"><code>Box.test(residuals(fit4), lag=7, fitdf=sum(fit1$arma[1:2]), type=&quot;Ljung-Box&quot;)</code></pre>
+<pre><code>
+    Box-Ljung test
+
+data:  residuals(fit4)
+X-squared = 4.6833, df = 5, p-value = 0.4557</code></pre>
+<p>The null hypothesis of independence is not rejected. The Box-Ljung shows that the autocorrelations of the residuals from the models are not significantly different from zero at α=0.05. The residuals of the models display the characteristics of White Noise. The models pass the required checks and are therefore suitable for forecasting.</p>
+</div>
+<div id="forecasting" class="section level2">
+<h2>Forecasting</h2>
+<p>ATM3 was not modeled due to its degenerative properties. To forecast values for ATM3, the model for an ATM with a similar mean will be used.</p>
+<pre class="r"><code>c(mean(ATM1), mean(ATM2), mean(ATM3[ATM3!=0]), mean(ATM4))</code></pre>
+<pre><code>[1]  84.15479  62.59178  87.66667 444.75681</code></pre>
+<p>The mean of ATM1 is very close to the mean of the few values in ATM3. Therefore, the ARIMA(0,0,1)(2,0,0)7 ARIMA model for ATM1 will be used to make predictions for ATM3.</p>
+<pre class="r"><code>fit3 &lt;- forecast::Arima(ATM3_train, model=fit1)</code></pre>
+<p>Forecasts are done using the forecast::forecast() function. Since the data were not seasonally adjusted, they need not be reseasonalized prior to forecast. Prediction point estimates are represented by a blue line, prediction intervals are represented by blue bands, and actual values are represented by a red line.</p>
+<pre class="r"><code>fcast1 &lt;- forecast::forecast(fit1, h=30)
+fcast2 &lt;- forecast::forecast(fit2, h=30)
+fcast3 &lt;- forecast::forecast(fit3, h=30)
+fcast4 &lt;- forecast::forecast(fit4, h=30)
+par(mfrow=c(4, 1), mar = c(0, 4, 0, 0), oma = c(4, 4, 2, 0.5))
+plot(fcast1, ylab=&quot;Cash ATM1&quot;, main=&quot;&quot;, xaxt=&quot;n&quot;); 
+lines(lag(ATM1_test, -length(ATM1_train)), col=&quot;red&quot;)
+plot(fcast2, ylab=&quot;Cash ATM2&quot;, main=&quot;&quot;, xaxt=&quot;n&quot;); 
+lines(lag(ATM2_test, -length(ATM2_train)), col=&quot;red&quot;)
+plot(fcast3, ylab=&quot;Cash ATM3&quot;, main=&quot;&quot;, xaxt=&quot;n&quot;)
+lines(lag(ATM3_test, -length(ATM3_train)), col=&quot;red&quot;)
+plot(fcast4, ylab=&quot;Cash ATM4&quot;, main=&quot;&quot;, xaxt=&quot;n&quot;)
+lines(lag(ATM4_test, -length(ATM4_train)), col=&quot;red&quot;)
+title(&quot;ATM Predictions&quot;, outer=TRUE)</code></pre>
+<p><img src="/post/atm/atm_files/figure-html/unnamed-chunk-28-1.png" width="672" /></p>
+<p>Observations:</p>
+<ul>
+<li>The predictions appear to produce a useful forecasts that reflect patterns in the original data.</li>
+</ul>
+</div>
+<div id="model-accuracy" class="section level2">
+<h2>Model Accuracy</h2>
+<p>The accuracy() function is helpful for obtaining summary measures of the forecast accuracy: Mean Error (ME), Root Mean Squared Error (RMSE), Mean Absolute Error (MAE), Mean Percentage Error (MPE), Mean Absolute Percentage Error (MAPE), Mean Absolute Scaled Error (MASE), and Autocorrelation of errors at lag 1 (ACF1).</p>
+<pre class="r"><code>round(forecast::accuracy(fcast1, length(ATM1_test)), 3)</code></pre>
+<pre><code>                  ME   RMSE    MAE      MPE    MAPE  MASE  ACF1
+Training set   2.038 25.007 16.039  -96.186 114.754 0.427 0.011
+Test set     -53.187 53.187 53.187 -177.290 177.290 1.416    NA</code></pre>
+<pre class="r"><code>round(forecast::accuracy(fcast2, length(ATM2_test)), 3)</code></pre>
+<pre><code>                  ME   RMSE    MAE      MPE    MAPE MASE   ACF1
+Training set   1.456 24.795 17.275     -Inf     Inf 0.40 -0.013
+Test set     -44.485 44.485 44.485 -148.284 148.284 1.03     NA</code></pre>
+<pre class="r"><code>round(forecast::accuracy(fcast4, length(ATM4_test)), 3)</code></pre>
+<pre><code>                   ME    RMSE     MAE       MPE     MAPE MASE  ACF1
+Training set   96.204 360.567 280.446  -342.343  388.847 0.72 0.017
+Test set     -385.878 385.878 385.878 -1286.261 1286.261 0.99    NA</code></pre>
+<p>These accuracy for the predications vary. ATM1 and ATM2 predictions are more accurate than ATM4 predictions. The closer the original data are to being White Noise, the less accurate the predictions.</p>
+</div>
